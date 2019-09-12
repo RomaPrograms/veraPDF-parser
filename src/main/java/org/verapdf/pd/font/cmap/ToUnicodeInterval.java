@@ -2,16 +2,16 @@
  * This file is part of veraPDF Parser, a module of the veraPDF project.
  * Copyright (c) 2015, veraPDF Consortium <info@verapdf.org>
  * All rights reserved.
- * <p>
+ *
  * veraPDF Parser is free software: you can redistribute it and/or modify
  * it under the terms of either:
- * <p>
+ *
  * The GNU General public license GPLv3+.
  * You should have received a copy of the GNU General Public License
  * along with veraPDF Parser as the LICENSE.GPL file in the root of the source
  * tree.  If not, see http://www.gnu.org/licenses/ or
  * https://www.gnu.org/licenses/gpl-3.0.en.html.
- * <p>
+ *
  * The Mozilla Public License MPLv2+.
  * You should have received a copy of the Mozilla Public License along with
  * veraPDF Parser as the LICENSE.MPL file in the root of the source tree.
@@ -83,10 +83,7 @@ public class ToUnicodeInterval {
             return fffe;
         }
         try {
-            if (unicode[0] == 0) {
-                return String.valueOf((char)unicode[1]);
-            }
-            return new String(unicode, "UTF-16BE");
+            return  (unicode[0] == 0) ? String.valueOf(unicode[1]) : new String(unicode, "UTF-16BE");
         } catch (UnsupportedEncodingException e) {
             LOGGER.log(Level.FINE, "Can't find String encoding UTF-16BE", e);
             return null;    // I'm sure this won't be reached

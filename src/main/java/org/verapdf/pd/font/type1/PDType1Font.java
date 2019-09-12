@@ -33,6 +33,7 @@ import org.verapdf.pd.font.cff.CFFFontProgram;
 import org.verapdf.pd.font.opentype.OpenTypeFontProgram;
 import org.verapdf.pd.font.stdmetrics.StandardFontMetrics;
 import org.verapdf.pd.font.stdmetrics.StandardFontMetricsFactory;
+import org.verapdf.pd.font.truetype.AdobeGlyphList;
 import org.verapdf.pd.font.truetype.TrueTypePredefined;
 import org.verapdf.tools.FontProgramIDGenerator;
 import org.verapdf.tools.StaticResources;
@@ -241,13 +242,9 @@ public class PDType1Font extends PDSimpleFont {
     @Override
     public float getWidthFromProgram(int code) {
         Encoding pdEncoding = this.getEncodingMapping();
-        if (pdEncoding != null) {
-            String glyphName = pdEncoding.getName(code);
-            if (glyphName != null) {
-                return this.getFontProgram().getWidth(glyphName);
-            }
-        }
-        return this.getFontProgram().getWidth(code);
+        String glyphName = pdEncoding.getName(code);
+        FontProgram fontProgram = this.getFontProgram();
+        return glyphName != null ? fontProgram.getWidth(glyphName) : fontProgram.getWidth(code);
     }
 
     @Override
@@ -298,7 +295,7 @@ public class PDType1Font extends PDSimpleFont {
             glyphName = fontProgram.getGlyphName(code);
         }
         if (glyphName != null) {
-            if (Arrays.asList(TrueTypePredefined.STANDARD_ENCODING).contains(glyphName) || SymbolSet.hasGlyphName(glyphName)) {
+            if (AdobeGlyphList.contains(glyphName) || SymbolSet.hasGlyphName(glyphName)) {
                 return " "; // indicates that toUnicode should not be checked.
             }
             return null;

@@ -2,16 +2,16 @@
  * This file is part of veraPDF Parser, a module of the veraPDF project.
  * Copyright (c) 2015, veraPDF Consortium <info@verapdf.org>
  * All rights reserved.
- * <p>
+ *
  * veraPDF Parser is free software: you can redistribute it and/or modify
  * it under the terms of either:
- * <p>
+ *
  * The GNU General public license GPLv3+.
  * You should have received a copy of the GNU General Public License
  * along with veraPDF Parser as the LICENSE.GPL file in the root of the source
  * tree.  If not, see http://www.gnu.org/licenses/ or
  * https://www.gnu.org/licenses/gpl-3.0.en.html.
- * <p>
+ *
  * The Mozilla Public License MPLv2+.
  * You should have received a copy of the Mozilla Public License along with
  * veraPDF Parser as the LICENSE.MPL file in the root of the source tree.
@@ -25,6 +25,8 @@ import org.verapdf.pd.font.truetype.TrueTypePredefined;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Represents encoding of font as given in font dictionary.
@@ -32,6 +34,10 @@ import java.util.Map;
  * @author Sergey Shemyakov
  */
 public class Encoding {
+
+    private static final Logger LOGGER = Logger.getLogger(Encoding.class.getCanonicalName());
+
+    private static final Encoding EMPTY = new Encoding(null);
 
     private static final String NOTDEF = ".notdef";
 
@@ -72,11 +78,15 @@ public class Encoding {
         }
     }
 
+    public static Encoding empty() {
+        return EMPTY;
+    }
+
     /**
      * Gets name of char for it's code via this encoding.
      *
      * @param code is character code.
-     * @return glyph name for given character code.
+     * @return glyph name for given character code or null if the internal font encoding should be used.
      */
     public String getName(int code) {
         if (code >= 0) {
@@ -84,21 +94,19 @@ public class Encoding {
                 if (code < predefinedEncoding.length) {
                     return predefinedEncoding[code];
                 } else {
-                    return NOTDEF;
+                    // if no predefined encoding, the null result for using font encoding
+                    return (predefinedEncoding.length != 0) ? NOTDEF : null;
                 }
             } else {
                 String diffRes = this.differences.get(code);
-                if (diffRes == null) {
-                    if (code < predefinedEncoding.length) {
-                        diffRes = predefinedEncoding[code];
-                    } else {
-                        diffRes = NOTDEF;
-                    }
+                if (diffRes == null && predefinedEncoding.length != 0) {
+                    diffRes = (code < predefinedEncoding.length) ? predefinedEncoding[code] : NOTDEF;
                 }
                 return diffRes;
             }
         } else {
-            return NOTDEF;
+            LOGGER.log(Level.WARNING, "Invalid glyph code: " + code);
+            return null;
         }
     }
 

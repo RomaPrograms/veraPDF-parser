@@ -2,16 +2,16 @@
  * This file is part of veraPDF Parser, a module of the veraPDF project.
  * Copyright (c) 2015, veraPDF Consortium <info@verapdf.org>
  * All rights reserved.
- * <p>
+ *
  * veraPDF Parser is free software: you can redistribute it and/or modify
  * it under the terms of either:
- * <p>
+ *
  * The GNU General public license GPLv3+.
  * You should have received a copy of the GNU General Public License
  * along with veraPDF Parser as the LICENSE.GPL file in the root of the source
  * tree.  If not, see http://www.gnu.org/licenses/ or
  * https://www.gnu.org/licenses/gpl-3.0.en.html.
- * <p>
+ *
  * The Mozilla Public License MPLv2+.
  * You should have received a copy of the Mozilla Public License along with
  * veraPDF Parser as the LICENSE.MPL file in the root of the source tree.
@@ -24,7 +24,7 @@ import org.verapdf.as.ASAtom;
 import org.verapdf.as.filters.io.ASBufferedInFilter;
 import org.verapdf.as.io.ASInputStream;
 import org.verapdf.cos.COSKey;
-import org.verapdf.tools.EncryptionToolsRevision6;
+import org.verapdf.tools.EncryptionToolsRevision5_6;
 
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
@@ -45,10 +45,13 @@ public class COSFilterAESDecryptionDefault extends ASBufferedInFilter {
 
     private static final byte[] SALT_BYTES = new byte[]{0x73, 0x41, 0x6C, 0x54};
 
+    private SecretKey key;
+    private IvParameterSpec initializingVector;
     private Cipher aes;
+    private boolean isDecryptFinished;
     private int decryptedPointer;
     private byte[] decryptedBytes;
-    private boolean decryptingCOSStream;
+    private final boolean decryptingCOSStream;
     private boolean haveReadStream;
 
     /**
@@ -69,16 +72,23 @@ public class COSFilterAESDecryptionDefault extends ASBufferedInFilter {
                                          ASAtom method)
             throws IOException, GeneralSecurityException {
         super(stream);
+        this.decryptingCOSStream = decryptingCOSStream;
         if (method == ASAtom.AESV2) {
-            initAES128(objectKey, encryptionKey);
+            prepareInitAES128(objectKey, encryptionKey);
         } else if (method == ASAtom.AESV3) {
-            initAES256(encryptionKey);
+            prepareInitAES256(encryptionKey);
         } else {
             throw new IllegalStateException("Unknown version of AES encryption algorithm");
         }
-        decryptedBytes = new byte[0];
-        decryptedPointer = 0;
-        this.decryptingCOSStream = decryptingCOSStream;
+        this.aes = Cipher.getInstance("AES/CBC/PKCS5Padding");
+        init();
+    }
+
+    private void init() throws GeneralSecurityException {
+        this.aes.init(Cipher.DECRYPT_MODE, key, initializingVector);
+        this.isDecryptFinished = false;
+        this.decryptedBytes = new byte[0];
+        this.decryptedPointer = 0;
         this.haveReadStream = false;
     }
 
@@ -95,30 +105,34 @@ public class COSFilterAESDecryptionDefault extends ASBufferedInFilter {
             this.haveReadStream = true;
         }
         int readDecrypted = this.readFromDecryptedBytes(buffer, size);
-        if (readDecrypted == -1) {
+        if (readDecrypted != -1 || isDecryptFinished) {
             return readDecrypted;
         }
 
-        if (this.bufferSize() <= 0) {
-            int bytesFed = (int) this.feedBuffer(getBufferCapacity());
-            if (bytesFed == -1) {
-                return -1;
-            }
-        }
-        byte[] encData = new byte[BF_BUFFER_SIZE];
-        int encDataLength = this.bufferPopArray(encData, BF_BUFFER_SIZE);
         try {
-            this.decryptedBytes = this.aes.update(encData, 0, encDataLength);
-            byte[] fin = this.aes.doFinal();
-            this.decryptedBytes = concatenate(this.decryptedBytes,
-                    decryptedBytes.length, fin, fin.length);
-            return this.readFromDecryptedBytes(buffer, size);
+            if (this.bufferSize() <= 0) {
+                int bytesFed = (int) this.feedBuffer(getBufferCapacity());
+                if (bytesFed == -1) {
+                    isDecryptFinished = true;
+                    this.decryptedBytes = this.aes.doFinal();
+                }
+            }
+
+            if (!isDecryptFinished) {
+                byte[] encData = new byte[BF_BUFFER_SIZE];
+                int encDataLength = this.bufferPopArray(encData, BF_BUFFER_SIZE);
+                this.decryptedBytes = this.aes.update(encData, 0, encDataLength);
+            }
+            this.decryptedPointer = 0;
+
+            int read = this.readFromDecryptedBytes(buffer, size);
+            return Math.max(read, 0);
         } catch (GeneralSecurityException e) {
             throw new IOException("Can't decrypt AES data.");
         }
     }
 
-    private void initAES128(COSKey objectKey, byte[] encryptionKey)
+    private void prepareInitAES128(COSKey objectKey, byte[] encryptionKey)
             throws IOException, GeneralSecurityException {
         byte[] objectKeyDigest =
                 COSFilterRC4DecryptionDefault.getObjectKeyDigest(objectKey);
@@ -130,23 +144,19 @@ public class COSFilterAESDecryptionDefault extends ASBufferedInFilter {
         byte[] resultEncryptionKey = md5.digest();
         int keyLength = Math.min(COSFilterRC4DecryptionDefault.MAXIMAL_KEY_LENGTH,
                 resultEncryptionKey.length);
-        SecretKey key = new SecretKeySpec(
+        this.key = new SecretKeySpec(
                 Arrays.copyOf(resultEncryptionKey, keyLength), "AES");
-        IvParameterSpec initializingVector = new
+        this.initializingVector = new
                 IvParameterSpec(getAESInitializingVector());
-        this.aes = Cipher.getInstance("AES/CBC/PKCS5Padding");
-        this.aes.init(Cipher.DECRYPT_MODE, key, initializingVector);
     }
 
-    private void initAES256(byte[] encryptionKey) throws IOException,
+    private void prepareInitAES256(byte[] encryptionKey) throws IOException,
             GeneralSecurityException {
-        EncryptionToolsRevision6.enableAES256();
-        SecretKey key = new SecretKeySpec(
+        EncryptionToolsRevision5_6.enableAES256();
+        this.key = new SecretKeySpec(
                 Arrays.copyOf(encryptionKey, 32), "AES");
-        IvParameterSpec initializingVector = new
+        this.initializingVector = new
                 IvParameterSpec(getAESInitializingVector());
-        this.aes = Cipher.getInstance("AES/CBC/PKCS5Padding");
-        this.aes.init(Cipher.DECRYPT_MODE, key, initializingVector);
     }
 
     private byte[] getAESInitializingVector() throws IOException {
@@ -167,5 +177,17 @@ public class COSFilterAESDecryptionDefault extends ASBufferedInFilter {
         System.arraycopy(decryptedBytes, decryptedPointer, buffer, 0, actualRead);
         decryptedPointer += actualRead;
         return actualRead;
+    }
+
+    @Override
+    public void reset() throws IOException {
+        try {
+            init();
+        } catch (GeneralSecurityException e) {
+            throw new IOException("Security exception during reset", e);
+        }
+        super.reset();
+        this.getInputStream().skip(16);
+        this.haveReadStream = this.decryptingCOSStream;
     }
 }

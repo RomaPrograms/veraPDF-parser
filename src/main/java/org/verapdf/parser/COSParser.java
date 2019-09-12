@@ -22,9 +22,9 @@ package org.verapdf.parser;
 
 import org.verapdf.as.ASAtom;
 import org.verapdf.as.exceptions.StringExceptions;
-import org.verapdf.as.io.ASFileInStream;
 import org.verapdf.as.io.ASInputStream;
 import org.verapdf.cos.*;
+import org.verapdf.io.InternalInputStream;
 import org.verapdf.io.SeekableInputStream;
 import org.verapdf.pd.encryption.StandardSecurityHandler;
 import org.verapdf.tools.resource.ASFileStreamCloser;
@@ -283,8 +283,6 @@ public class COSParser extends BaseParser {
 		checkStreamSpacings(dict);
 		long streamStartOffset = source.getOffset();
 
-		skipStreamSpaces();
-
 		Long size = dict.getKey(ASAtom.LENGTH).getInteger();
 		source.seek(streamStartOffset);
 
@@ -294,7 +292,7 @@ public class COSParser extends BaseParser {
 			dict.setRealStreamSize(size);
 			ASInputStream stm = super.getRandomAccess(size);
 			dict.setData(stm);
-			if (stm instanceof ASFileInStream) {
+			if (stm instanceof InternalInputStream) {
 				this.document.addFileResource(new ASFileStreamCloser(stm));
 			}
 		} else {
@@ -302,31 +300,45 @@ public class COSParser extends BaseParser {
 			long realStreamSize = -1;
 			int bufferLength = 512;
 			byte[] buffer = new byte[bufferLength];
-			while (!source.isEOF()) {
+			int eolLength = 0;
+			boolean isPrevCR = false;
+			while (realStreamSize == -1 && !source.isEOF()) {
 				long bytesRead = source.read(buffer, bufferLength);
 				for (int i = 0; i < bytesRead; i++) {
 					if (buffer[i] == 101) {
 						long reset = source.getOffset();
-						long possibleEndstreamOffset = reset - bytesRead + i;
-						source.seek(possibleEndstreamOffset);
+						long possibleEndStreamOffset = reset - bytesRead + i - eolLength;
+						source.seek(possibleEndStreamOffset);
 						nextToken();
 						if (token.type == Token.Type.TT_KEYWORD &&
 								token.keyword == Token.Keyword.KW_ENDSTREAM) {
-							realStreamSize = possibleEndstreamOffset - streamStartOffset;
+							realStreamSize = possibleEndStreamOffset - streamStartOffset;
 							dict.setRealStreamSize(realStreamSize);
+							source.seek(streamStartOffset);
 							ASInputStream stm = super.getRandomAccess(realStreamSize);
 							dict.setData(stm);
-							source.seek(possibleEndstreamOffset);
-							if (stm instanceof ASFileInStream) {
+							source.seek(possibleEndStreamOffset);
+							if (stm instanceof InternalInputStream) {
 								this.document.addFileResource(new ASFileStreamCloser(stm));
 							}
 							break;
 						}
 						source.seek(reset);
 					}
-				}
-				if (realStreamSize != -1) {
-					break;
+
+					//we need to subtract eol before endstream length from stream length
+					if (isCR(buffer[i])) {
+						// if current byte is CR, then this is the 1st byte of eol
+						eolLength = 1;
+						isPrevCR = true;
+					} else {
+						if (isLF(buffer[i])) {
+							eolLength = isPrevCR ? 2 : 1;
+						} else {
+							eolLength = 0;
+						}
+						isPrevCR = false;
+					}
 				}
 			}
 			if (realStreamSize == -1) {
@@ -342,13 +354,13 @@ public class COSParser extends BaseParser {
 
 	private void checkStreamSpacings(COSObject stream) throws IOException {
 		byte whiteSpace = source.readByte();
-		if (whiteSpace == 13) {
+		if (isCR(whiteSpace)) {
 			whiteSpace = source.readByte();
-			if (whiteSpace != 10) {
+			if (!isLF(whiteSpace)) {
 				stream.setStreamKeywordCRLFCompliant(false);
 				source.unread();
 			}
-		} else if (whiteSpace != 10) {
+		} else if (!isLF(whiteSpace)) {
 			LOGGER.log(Level.WARNING, "Stream at " + source.getOffset() + " offset has no EOL marker.");
 			stream.setStreamKeywordCRLFCompliant(false);
 			source.unread();

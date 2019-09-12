@@ -56,7 +56,7 @@ public class BaseParser {
 		this.source = stream;
 	}
 
-	public BaseParser(String fileName) throws FileNotFoundException {
+	public BaseParser(String fileName) throws IOException {
 		if(fileName == null) {
 			throw new FileNotFoundException("Can't create SeekableStream from file, filename is null");
 		}
@@ -248,7 +248,6 @@ public class BaseParser {
 	}
 
 	public ASInputStream getRandomAccess(final long length) throws IOException {
-		skipEOL();
 		ASInputStream result =
 				this.source.getStream(this.source.getOffset(), length);
 		source.seekFromCurrentPosition(length);
@@ -276,39 +275,28 @@ public class BaseParser {
 		this.skipSpaces(false);
 	}
 
-	protected void skipSpaces(boolean skipComment) throws IOException {
-		byte ch;
-		while (!this.source.isEOF()) {
-			ch = this.source.readByte();
-			if (CharTable.isSpace(ch)) {
-				continue;
-			}
-			if (ch == '%' && skipComment) {
-				skipComment();
-				continue;
-			}
-
-			this.source.unread();
-			break;
-		}
+	protected void skipSingleSpace() throws IOException {
+		this.skipSingleSpace(false);
 	}
 
-	protected void skipStreamSpaces() throws IOException {
+	protected void skipSpaces(boolean skipComment) throws IOException {
+		while (skipSingleSpace(skipComment));
+	}
+
+	protected boolean skipSingleSpace(boolean skipComment) throws IOException {
+		if (this.source.isEOF()) {
+			return false;
+		}
 		byte ch = this.source.readByte();
-
-		//check for whitespace
-		while (ch == ASCII_SPACE) {
-			ch = this.source.readByte();
+		if (CharTable.isSpace(ch)) {
+			return true;
 		}
-
-		if (isCR(ch)) {
-			ch = this.source.readByte();
-			if (!isLF(ch)) {
-				this.source.unread();
-			}
-		} else if (!isLF(ch)) {
-			this.source.unread();
+		if (ch == '%' && skipComment) {
+			skipComment();
+			return true;
 		}
+		this.source.unread();
+		return false;
 	}
 
 	protected boolean isDigit() throws IOException {
